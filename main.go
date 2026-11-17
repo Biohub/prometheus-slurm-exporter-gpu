@@ -17,6 +17,9 @@ package main
 
 import (
         "flag"
+        "os"
+        "os/signal"
+        "syscall"
         "net/http"
         "time"
         "github.com/prometheus/client_golang/prometheus"
@@ -46,6 +49,11 @@ func main() {
         slurmCache.RefreshAll(true)
         log.Infof("Initial cache refresh complete")
 
+        // Per-job static cache: maintains scontrol-derived fields (WorkDir,
+        // GPU IDX, etc.) keyed by job id. Only fetches new jobs on each diff.
+        jobStaticCache = NewJobStaticCache(60 * time.Second)
+        jobStaticCache.Refresh()
+
         // Build the list of all collectors
         collectors := []prometheus.Collector{
                 NewAccountsCollector(),   // from accounts.go
@@ -59,6 +67,9 @@ func main() {
                 NewUsersCollector(),      // from users.go
                 NewGresCollector(),       // from gres.go
                 NewGPUsCollector(),       // from gpus.go
+                NewJobGPUIndexCollector(), // from job_gpu_index.go
+                NewJobProjectCollector(),  // from job_project.go
+                NewJobGPUAllocCollector(), // from job_gpu_alloc.go
         }
 
         // Wrap all collectors in a CachingCollector that pre-builds metrics
@@ -78,12 +89,24 @@ func main() {
                 defer ticker.Stop()
                 for range ticker.C {
                         slurmCache.RefreshAll(true)
+                        jobStaticCache.Refresh()
                         cachingCollector.Refresh()
                 }
         }()
 
         // The Handler function provides a default handler to expose metrics
         // via an HTTP server. "/metrics" is the usual endpoint for that.
+        // Save the job history and counts on SIGTERM/SIGINT (systemctl stop or
+        // restart) so the next start resumes the totals exactly.
+        go func() {
+                sig := make(chan os.Signal, 1)
+                signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+                s := <-sig
+                log.Infof("Received %v: saving %s before exit", s, stateFilesSummary())
+                shutdownSaveUserState(60 * time.Second)
+                os.Exit(0)
+        }()
+
         log.Infof("Starting Server: %s", *listenAddress)
         log.Infof("Cache Interval: %ds", *cacheSeconds)
         http.Handle("/metrics", promhttp.Handler())
