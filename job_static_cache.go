@@ -84,6 +84,14 @@ func (c *JobStaticCache) Refresh() {
 
 	running := runningJobIDsFromSqueueCache()
 	if len(running) == 0 {
+		// Nothing is running (drain, maintenance, idle cluster). Drop every
+		// cached job so the per-job GPU metrics stop reporting the last set of
+		// allocations. (A failed squeue doesn't land here: the command cache
+		// keeps its previous successful output on error.)
+		c.mu.Lock()
+		c.entries = make(map[int]*JobStaticInfo)
+		c.lastDiff = time.Now()
+		c.mu.Unlock()
 		return
 	}
 
