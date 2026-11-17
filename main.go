@@ -17,6 +17,9 @@ package main
 
 import (
         "flag"
+        "os"
+        "os/signal"
+        "syscall"
         "net/http"
         "time"
         "github.com/prometheus/client_golang/prometheus"
@@ -93,6 +96,17 @@ func main() {
 
         // The Handler function provides a default handler to expose metrics
         // via an HTTP server. "/metrics" is the usual endpoint for that.
+        // Save the job history and counts on SIGTERM/SIGINT (systemctl stop or
+        // restart) so the next start resumes the totals exactly.
+        go func() {
+                sig := make(chan os.Signal, 1)
+                signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+                s := <-sig
+                log.Infof("Received %v: saving %s before exit", s, stateFilesSummary())
+                shutdownSaveUserState(60 * time.Second)
+                os.Exit(0)
+        }()
+
         log.Infof("Starting Server: %s", *listenAddress)
         log.Infof("Cache Interval: %ds", *cacheSeconds)
         http.Handle("/metrics", promhttp.Handler())

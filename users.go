@@ -16,7 +16,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>. */
 package main
 
 import (
-    "encoding/json"
     "os"
     "log"
     "strings"
@@ -85,6 +84,7 @@ func init() {
     userJobCounts = make(map[string]map[string]float64)
     userGroups = make(map[string]string)
     cachedNodePartitionMap = make(map[string]string)
+    removeStaleTempFiles(userHistoryFile, userCountsFile)
     loadUserJobHistory()
     loadUserJobCounts()
     loadUserGroups()
@@ -99,65 +99,17 @@ func loadUserGroups() {
 }
 
 func loadUserJobHistory() {
-    data, err := os.ReadFile(userHistoryFile)
-    if err != nil {
-        log.Printf("No existing job history file: %v", err)
-        return
-    }
-
     var history map[string]*JobHistoryEntry
-    if err := json.Unmarshal(data, &history); err != nil {
-        log.Printf("Failed to parse job history: %v", err)
-        return
-    }
-    userJobHistory = history
-}
-
-func saveUserJobHistory() {
-    userJobHistoryMux.RLock()
-    data, err := json.Marshal(userJobHistory)
-    userJobHistoryMux.RUnlock()
-
-    if err != nil {
-        log.Printf("Failed to marshal job history: %v", err)
-        return
-    }
-
-    os.MkdirAll(userHistoryDir, 0755)
-    if err := os.WriteFile(userHistoryFile, data, 0644); err != nil {
-        log.Printf("Failed to save job history: %v", err)
+    if loadStateFile(userHistoryFile, &history) && history != nil {
+        userJobHistory = history
+        log.Printf("Loaded job history: %d jobs from %s", len(userJobHistory), userHistoryFile)
     }
 }
-
 func loadUserJobCounts() {
-    data, err := os.ReadFile(userCountsFile)
-    if err != nil {
-        log.Printf("No existing job counts file: %v", err)
-        return
-    }
-
     var counts map[string]map[string]float64
-    if err := json.Unmarshal(data, &counts); err != nil {
-        log.Printf("Failed to parse job counts: %v", err)
-        return
-    }
-    userJobCounts = counts
-    log.Printf("Loaded job counts for %d users", len(userJobCounts))
-}
-
-func saveUserJobCounts() {
-    countsMux.RLock()
-    data, err := json.Marshal(userJobCounts)
-    countsMux.RUnlock()
-
-    if err != nil {
-        log.Printf("Failed to marshal job counts: %v", err)
-        return
-    }
-
-    os.MkdirAll(userHistoryDir, 0755)
-    if err := os.WriteFile(userCountsFile, data, 0644); err != nil {
-        log.Printf("Failed to save job counts: %v", err)
+    if loadStateFile(userCountsFile, &counts) && counts != nil {
+        userJobCounts = counts
+        log.Printf("Loaded job counts for %d users", len(userJobCounts))
     }
 }
 
@@ -983,8 +935,7 @@ func ParseUsersMetricsComplete(jobData map[string]map[string]string) map[string]
     }
     userJobHistoryMux.Unlock()
 
-    go saveUserJobHistory()
-    go saveUserJobCounts()
+    maybeSaveUserState()
 
     return users
 }
