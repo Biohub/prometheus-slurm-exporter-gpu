@@ -28,11 +28,15 @@ import (
 // change for the lifetime of the job. Cached once per job, reused until the
 // job leaves squeue.
 type JobStaticInfo struct {
-	JobID   int
-	User    string
-	WorkDir string
-	NumCPUs int
-	GPUs    []JobGPUAssignment
+	JobID int
+	// Set for array tasks: scontrol's ArrayJobId / ArrayTaskId, so the job can be
+	// named "<ArrayJobId>_<ArrayTaskId>" the way sacct and the call logs do.
+	ArrayJobID  int
+	ArrayTaskID string
+	User        string
+	WorkDir     string
+	NumCPUs     int
+	GPUs        []JobGPUAssignment
 }
 
 // JobStaticCache tracks per-job static info. On each Refresh() it diffs the
@@ -209,14 +213,18 @@ func parseScontrolJobs(output string) []*JobStaticInfo {
 			flush()
 			current = &JobStaticInfo{}
 			for _, f := range strings.Fields(trimmed) {
-				if !strings.HasPrefix(f, "JobId=") {
-					continue
+				switch {
+				case strings.HasPrefix(f, "JobId="):
+					if id, err := strconv.Atoi(strings.TrimPrefix(f, "JobId=")); err == nil {
+						current.JobID = id
+					}
+				case strings.HasPrefix(f, "ArrayJobId="):
+					if id, err := strconv.Atoi(strings.TrimPrefix(f, "ArrayJobId=")); err == nil {
+						current.ArrayJobID = id
+					}
+				case strings.HasPrefix(f, "ArrayTaskId="):
+					current.ArrayTaskID = strings.TrimPrefix(f, "ArrayTaskId=")
 				}
-				idStr := strings.TrimPrefix(f, "JobId=")
-				if id, err := strconv.Atoi(idStr); err == nil {
-					current.JobID = id
-				}
-				break
 			}
 			continue
 		}

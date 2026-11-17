@@ -66,6 +66,7 @@ func main() {
                 NewGPUsCollector(),       // from gpus.go
                 NewJobGPUIndexCollector(), // from job_gpu_index.go
                 NewJobProjectCollector(),  // from job_project.go
+                NewJobGPUAllocCollector(), // from job_gpu_alloc.go
         }
 
         // Wrap all collectors in a CachingCollector that pre-builds metrics
